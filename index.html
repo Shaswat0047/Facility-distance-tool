@@ -27,7 +27,7 @@
       color: #007bff;
     }
     label { display: block; margin: 15px 0 5px; font-weight: 600; }
-    input, textarea {
+    input, textarea, select {
       width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #ccc;
     }
     textarea { resize: vertical; }
@@ -65,8 +65,19 @@
       <label>Candidate ZIP or City:</label>
       <input type="text" id="candidate" value="30033" />
 
-      <label>Facilities (one per line, city & state):</label>
-      <textarea id="facilities" rows="8">Alpharetta, GA
+      <label>Select State (Optional):</label>
+      <select id="stateSelect" onchange="filterByState()">
+        <option value="all">All States</option>
+        <option value="GA">Georgia (GA)</option>
+        <option value="IN">Indiana (IN)</option>
+        <option value="IL">Illinois (IL)</option>
+        <option value="MI">Michigan (MI)</option>
+        <option value="MN">Minnesota (MN)</option>
+        <option value="WI">Wisconsin (WI)</option>
+      </select>
+
+      <label>Facilities (one per line):</label>
+      <textarea id="facilities" rows="15">Alpharetta, GA
 Atlanta, GA
 Kennesaw, GA
 Johns Creek, GA
@@ -82,7 +93,50 @@ Roswell, GA
 Buford, GA
 Gainesville, GA
 Columbus, GA
-Austell, GA</textarea>
+Austell, GA
+Munster, IN 46321
+Crown Point, IN 46307
+Granger, IN 46530
+South Bend, IN 46617
+Mishawaka, IN 46544
+East Peoria, IL 61611
+Dunlap, IL 61525
+Goshen, IN 46526
+Bloomington, IL 61704
+Plymouth, IN 46563
+Elkhart, IN 46514
+New Lenox, IL 60451
+Evanston, IL 60201
+Chicago, IL 60622
+Flint, MI 48507
+Detroit, MI 48213
+Saint Clair Shores, MI 48081
+New Baltimore, MI 48047
+Southfield, MI 48075
+Dearborn, MI 48126
+East Lansing, MI 48823
+Canton, MI 48187
+Berkley, MI 48072
+Wayzata, MN 55391
+Fond du Lac, WI 54935
+Appleton, WI 54911
+Green Bay, WI 54311
+Mauston, WI 53948
+Manitowoc, WI 54220
+New Berlin, WI 53151
+Omro, WI 54963
+Oshkosh, WI 54902
+Sun Prairie, WI 53590
+West Bend, WI 53095
+Hopkins, MN 55343
+St. Paul, MN 55102
+Glendale, WI 53217
+Greendale, WI 53129
+Fox Point, WI 53217
+Onalaska, WI 54650
+Racine, WI 53406
+Lake Geneva, WI 53147
+Mequon, WI 53092</textarea>
 
       <label>Max Distance (miles):</label>
       <input type="number" id="maxDistance" value="50" />
@@ -105,16 +159,14 @@ Austell, GA</textarea>
 
   <!-- Firebase SDK -->
   <script type="module">
-    // Import Firebase SDK modules from CDN
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
     import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
-    // ✅ Your Firebase Config — Replace with your keys!
     const firebaseConfig = {
       apiKey: "AIzaSyAy7IJNZFpl9Q6ljPTYN2YCDKbQw2GzGwM",
       authDomain: "facilitydistancetool.firebaseapp.com",
       projectId: "facilitydistancetool",
-      storageBucket: "facilitydistancetool.firebasestorage.app",
+      storageBucket: "facilitydistancetool.appspot.com",
       messagingSenderId: "680011212791",
       appId: "1:680011212791:web:3ac830bc6d5d8cc4cc30f2",
       measurementId: "G-C06QMEMJL5"
@@ -166,37 +218,51 @@ Austell, GA</textarea>
       return null;
     }
 
+    function filterByState() {
+      const selected = document.getElementById('stateSelect').value;
+      const textarea = document.getElementById('facilities');
+      const allLines = textarea.value.split('\n');
+      if (selected === 'all') return; 
+      const filtered = allLines.filter(line => line.includes(`, ${selected}`));
+      textarea.value = filtered.join('\n');
+    }
+
     async function checkDistances() {
       const candidateLoc = document.getElementById('candidate').value.trim();
       const facilities = document.getElementById('facilities').value.split('\n').map(f => f.trim()).filter(Boolean);
       const maxMiles = parseFloat(document.getElementById('maxDistance').value);
       const withinList = document.getElementById('withinList');
       const outOfRangeList = document.getElementById('outOfRangeList');
-      withinList.innerHTML = '<li>Processing...</li>';
+      withinList.innerHTML = '<li>⏳ Processing...</li>';
       outOfRangeList.innerHTML = '';
 
-      withinResults = []; outOfRangeResults = [];
+      withinResults = []; 
+      outOfRangeResults = [];
       const originCoord = await geocodeLocation(candidateLoc);
       if (!originCoord) return alert('Geocode failed for candidate.');
 
       const coordsList = await Promise.all(facilities.map(geocodeLocation));
       const locations = [[originCoord.lon, originCoord.lat], ...coordsList.filter(Boolean).map(c => [c.lon, c.lat])];
       const body = { locations, metrics: ["distance"], units: "mi" };
+
       const res = await fetch('https://api.openrouteservice.org/v2/matrix/driving-car', {
         method: 'POST',
         headers: { Authorization: apiKey, 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
       });
+
       const matrix = await res.json();
       const distances = matrix.distances[0].slice(1);
-      withinList.innerHTML = ''; outOfRangeList.innerHTML = '';
+      withinList.innerHTML = ''; 
+      outOfRangeList.innerHTML = '';
 
       if (!map) {
-        map = L.map('map').setView([originCoord.lat, originCoord.lon], 9);
+        map = L.map('map').setView([originCoord.lat, originCoord.lon], 7);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
       }
-      if (markersLayer) markersLayer.clearLayers();
+      if (markersLayer) map.removeLayer(markersLayer);
       markersLayer = L.layerGroup().addTo(map);
+
       L.marker([originCoord.lat, originCoord.lon]).addTo(markersLayer).bindPopup(`Candidate: ${candidateLoc}`).openPopup();
 
       facilities.forEach((fac, i) => {
@@ -204,13 +270,20 @@ Austell, GA</textarea>
         const dist = distances[i];
         if (coords && dist <= maxMiles) {
           withinResults.push({ facility: fac, distance: dist.toFixed(1) });
-          withinList.innerHTML += `<li>${fac}: ${dist.toFixed(1)} mi ✅</li>`;
-          L.circleMarker([coords.lat, coords.lon], { color: 'green' }).addTo(markersLayer).bindPopup(`${fac}: ${dist.toFixed(1)} mi ✅`);
         } else {
           outOfRangeResults.push({ facility: fac, distance: dist?.toFixed(1) || 'N/A' });
-          outOfRangeList.innerHTML += `<li>${fac}: ${dist?.toFixed(1) || 'N/A'} mi ❌</li>`;
-          if (coords) L.circleMarker([coords.lat, coords.lon], { color: 'red' }).addTo(markersLayer).bindPopup(`${fac}: ${dist?.toFixed(1) || 'N/A'} mi ❌`);
         }
+      });
+
+      // ✅ Sort ascending by distance
+      withinResults.sort((a, b) => parseFloat(a.distance) - parseFloat(b.distance));
+      outOfRangeResults.sort((a, b) => parseFloat(a.distance) - parseFloat(b.distance));
+
+      withinResults.forEach(r => {
+        withinList.innerHTML += `<li>${r.facility}: ${r.distance} mi ✅</li>`;
+      });
+      outOfRangeResults.forEach(r => {
+        outOfRangeList.innerHTML += `<li>${r.facility}: ${r.distance} mi ❌</li>`;
       });
 
       map.fitBounds(markersLayer.getBounds());
